@@ -1,26 +1,19 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-
-/*
-|--------------------------------------------------------------------------
-| Rutas del laboratorio del PFM
-|--------------------------------------------------------------------------
-|
-| Este archivo está vacío a propósito: las rutas de cada módulo las trae
-| el código que genere ChatGPT. Los 8 prompts listos para copiar/pegar
-| están en PROMPTS.md (en la raíz del proyecto).
-|
-| Recuerda: cada módulo se genera 2 veces (prompt básico y de seguridad),
-| y cada una de esas 2 versiones se guarda antes y después de corregirla
-| con el workflow → 4 versiones por módulo, cada una en su propia rama de
-| Git (ver README, sección 2).
-|
-*/
+use App\Http\Controllers\AuthController;
 
 Route::view('/', 'welcome')->name('home');
 
-// TODO Módulo 1 — Autenticación        (prompts en PROMPTS.md)
-// TODO Módulo 2 — Formulario de datos  (prompts en PROMPTS.md)
-// TODO Módulo 3 — Subida de archivos   (prompts en PROMPTS.md)
-// TODO Módulo 4 — Búsqueda con filtros (prompts en PROMPTS.md)
+// Módulo 1 — Autenticación
+Route::get('/registro', [AuthController::class, 'showRegister'])->name('register');
+Route::post('/registro', [AuthController::class, 'register'])->name('register.store');
+
+Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
+Route::post('/login', [AuthController::class, 'login'])->name('login.authenticate');
+
+Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth')->name('logout');
+
+Route::get('/dashboard', function () {
+    return view('dashboard');
+})->middleware('auth')->name('dashboard');
