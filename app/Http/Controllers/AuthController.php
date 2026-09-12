@@ -3,88 +3,101 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\View\View;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
-    public function showRegister(): View
+    public function showRegister()
     {
         return view('auth.register');
     }
 
-    public function register(Request $request): RedirectResponse
+    public function register(Request $request)
     {
-        $data = $request->validate([
-            'nombre' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:6', 'confirmed'],
-        ], [
-            'nombre.required' => 'El nombre es obligatorio.',
-            'email.required' => 'El correo electrónico es obligatorio.',
-            'email.email' => 'Introduce un correo electrónico válido.',
-            'email.unique' => 'Este correo electrónico ya está registrado.',
-            'password.required' => 'La contraseña es obligatoria.',
-            'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
-            'password.confirmed' => 'Las contraseñas no coinciden.',
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'email' => ['required', 'string', 'email:rfc,dns', 'max:255'],
+            'password' => ['required', 'string', 'min:12', 'confirmed'],
         ]);
 
-        $user = User::create([
-            'nombre' => $data['nombre'],
-            'email' => $data['email'],
-            'password' => Hash::make($data['password']),
-        ]);
+        $name = trim(strip_tags($validated['name']));
+        $email = Str::lower(trim($validated['email']));
 
-        Auth::login($user);
+        try {
+            User::create([
+                'name' => $name,
+                'email' => $email,
+                'password' => $validated['password'],
+            ]);
+        } catch (\Illuminate\Database\QueryException $e) {
+            return back()
+                ->withInput($request->except('password', 'password_confirmation'))
+                ->withErrors([
+                    'email' => 'No se ha podido completar el registro con los datos proporcionados.',
+                ]);
+        }
 
         return redirect()
-            ->route('dashboard')
-            ->with('success', 'Usuario registrado correctamente.');
+            ->route('login')
+            ->with('success', 'Si el registro se ha completado correctamente, ya puedes iniciar sesión.');
     }
 
-    public function showLogin(): View
+    public function showLogin()
     {
         return view('auth.login');
     }
 
-    public function login(Request $request): RedirectResponse
+    public function login(Request $request)
     {
-        $credentials = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required'],
-        ], [
-            'email.required' => 'El correo electrónico es obligatorio.',
-            'email.email' => 'Introduce un correo electrónico válido.',
-            'password.required' => 'La contraseña es obligatoria.',
+        $request->validate([
+            'email' => ['required', 'string', 'email:rfc,dns', 'max:255'],
+            'password' => ['required', 'string', 'max:255'],
         ]);
 
-        if (! Auth::attempt($credentials)) {
+        $email = Str::lower(trim($request->input('email')));
+        $throttleKey = Str::lower($email . '|' . $request->ip());
+
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+
             return back()
+                ->withInput($request->except('password'))
                 ->withErrors([
-                    'email' => 'Las credenciales no son correctas.',
+                    'email' => 'Demasiados intentos. Inténtalo de nuevo más tarde.',
                 ])
-                ->onlyInput('email');
+                ->with('retry_after', $seconds);
         }
 
+        $credentials = [
+            'email' => $email,
+            'password' => $request->input('password'),
+        ];
+
+        if (! Auth::attempt($credentials, $request->boolean('remember'))) {
+            RateLimiter::hit($throttleKey, 60);
+
+            return back()
+                ->withInput($request->except('password'))
+                ->withErrors([
+                    'email' => 'Las credenciales proporcionadas no son válidas.',
+                ]);
+        }
+
+        RateLimiter::clear($throttleKey);
         $request->session()->regenerate();
 
-        return redirect()
-            ->intended(route('dashboard'))
-            ->with('success', 'Bienvenido de nuevo.');
+        return redirect()->intended(route('dashboard'));
     }
 
-    public function logout(Request $request): RedirectResponse
+    public function logout(Request $request)
     {
         Auth::logout();
-
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return redirect()
-            ->route('login')
-            ->with('success', 'Sesión cerrada correctamente.');
+        return redirect()->route('login');
     }
 }
